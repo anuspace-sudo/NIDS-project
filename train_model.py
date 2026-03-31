@@ -1,8 +1,7 @@
 import pandas as pd
 import pickle
 from sklearn.ensemble import RandomForestClassifier
-pickle.dump(X.columns, open("columns.pkl", "wb"))
-pickle.dump(model, open("model.pkl", "wb"))
+
 # ---------------- LOAD DATA ----------------
 cols = [i for i in range(42)]
 df = pd.read_csv("KDDTrain+.txt", names=cols)
@@ -47,6 +46,7 @@ X = pd.get_dummies(X)
 pickle.dump(X.columns, open("columns.pkl", "wb"))
 
 # ---------------- TRAIN MODEL ----------------
+
 model = RandomForestClassifier(n_estimators=100)
 model.fit(X, y)
 
