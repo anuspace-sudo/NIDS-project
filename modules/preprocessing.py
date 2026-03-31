@@ -7,9 +7,7 @@ columns = pickle.load(open(os.path.join(BASE_DIR, "columns.pkl"), "rb"))
 
 def preprocess(df):
     original = df.copy()
-
-    df = df.drop("label", axis=1)
+    df = df.drop(["label", "difficulty"], axis=1, errors="ignore")
     df = pd.get_dummies(df)
     df = df.reindex(columns=columns, fill_value=0)
-
     return df, original

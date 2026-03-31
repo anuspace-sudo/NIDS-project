@@ -11,7 +11,7 @@ columns_kdd = [
 "dst_host_same_srv_rate","dst_host_diff_srv_rate",
 "dst_host_same_src_port_rate","dst_host_srv_diff_host_rate",
 "dst_host_serror_rate","dst_host_srv_serror_rate",
-"dst_host_rerror_rate","dst_host_srv_rerror_rate","label"
+"dst_host_rerror_rate","dst_host_srv_rerror_rate","label","difficulty"
 ]
 
 def load_data():
