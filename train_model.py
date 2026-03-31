@@ -21,8 +21,7 @@ attack_map = {
 }
 
 # SAFE mapping
-df[41] = df[41].apply(lambda x: attack_map.get(x, "Normal"))
-
+df[41] = df[41].str.strip().apply(lambda x: attack_map.get(x, "Normal"))
 # ---------------- BALANCE DATA ----------------
 normal = df[df[41] == 'Normal']
 attack = df[df[41] != 'Normal']
