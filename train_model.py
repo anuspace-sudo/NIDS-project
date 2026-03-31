@@ -3,7 +3,7 @@ import pickle
 from sklearn.ensemble import RandomForestClassifier
 
 # ---------------- LOAD DATA ----------------
-cols = [i for i in range(42)]
+cols = [i for i in range(43)]
 df = pd.read_csv("KDDTrain+.txt", names=cols)
 
 # ---------------- ATTACK MAPPING ----------------
