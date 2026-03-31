@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>NIDS — Live Terminal Monitor</title>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <style>
+    :root {
+      --bg-color: #050505;
+      --terminal-green: #00ff41;
+      --terminal-dim: #008f11;
+      --terminal-dark: #003b00;
+      --error-red: #ff003c;
+      --warning-yellow: #ffb700;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      min-height: 100vh;
+      background-color: var(--bg-color);
+      color: var(--terminal-green);
+      font-family: 'Share Tech Mono', monospace;
+    }
+
+    /* CRT Scanlines and flicker */
+    .crt-flicker {
+      animation: crt-flicker 0.15s infinite;
+      pointer-events: none;
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0, 255, 65, 0.02);
+      z-index: 998;
+    }
+    @keyframes crt-flicker { 0% { opacity: 0.95; } 50% { opacity: 0.85; } 100% { opacity: 0.95; } }
+
+    /* NAV */
+    nav {
+      position: sticky; top: 0; z-index: 200;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 20px;
+      background: var(--terminal-dark);
+      border-bottom: 2px solid var(--terminal-green);
+    }
+    .nav-brand { font-size: 16px; font-weight: bold; }
+    .nav-links { display: flex; gap: 20px; align-items: center; font-size: 14px; }
+    .nav-link { color: var(--terminal-dim); text-decoration: none; border-bottom: 1px solid transparent; }
+    .nav-link:hover { color: var(--terminal-green); }
+    .nav-link.active { color: var(--error-red); border-bottom: 1px dashed var(--error-red); }
+
+    /* Page container */
+    .page { padding: 30px; }
+
+    /* Header */
+    .page-header { margin-bottom: 30px; border-left: 4px solid var(--error-red); padding-left: 15px; }
+    .page-header h2 { font-size: 24px; text-transform: uppercase; margin-bottom: 5px; color: var(--error-red); text-shadow: 0 0 5px var(--error-red); }
+    .page-header p { font-size: 14px; color: var(--terminal-dim); }
+
+    /* Controls */
+    .controls { display: flex; align-items: center; gap: 20px; margin-bottom: 30px; }
+    .btn-start, .btn-stop {
+      padding: 10px 20px;
+      background: transparent;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 14px;
+      text-transform: uppercase;
+      cursor: pointer;
+    }
+    .btn-start {
+      border: 1px solid var(--error-red); color: var(--error-red);
+    }
+    .btn-start:hover:not(:disabled) { background: var(--error-red); color: var(--bg-color); box-shadow: 0 0 10px var(--error-red); }
+    .btn-start:disabled { opacity: 0.4; border-style: dashed; }
+    
+    .btn-stop {
+      border: 1px solid var(--terminal-green); color: var(--terminal-green);
+    }
+    .btn-stop:hover:not(:disabled) { background: var(--terminal-green); color: var(--bg-color); box-shadow: 0 0 10px var(--terminal-green); }
+    .btn-stop:disabled { opacity: 0.4; border-style: dashed; }
+
+    .status-pill {
+      border: 1px solid var(--terminal-dim);
+      padding: 8px 15px; color: var(--terminal-dim); font-size: 13px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .status-pill.online { border-color: var(--error-red); color: var(--error-red); }
+    .status-dot { width: 10px; height: 10px; background: var(--terminal-dim); }
+    .status-pill.online .status-dot { background: var(--error-red); box-shadow: 0 0 8px var(--error-red); animation: blink 1s step-end infinite; }
+
+    @keyframes blink { 50% { opacity: 0; } }
+
+    /* Stats */
+    .live-stats { display: flex; gap: 30px; margin-bottom: 30px; border: 1px dashed var(--terminal-dim); padding: 20px; }
+    .lstat { flex: 1; border-left: 2px solid var(--terminal-dim); padding-left: 15px; }
+    .lstat-label { font-size: 12px; color: var(--terminal-dim); margin-bottom: 5px; }
+    .lstat-val { font-size: 28px; font-weight: bold; text-shadow: 0 0 5px var(--terminal-green); }
+    .lv-attack .lstat-val { color: var(--error-red); text-shadow: 0 0 5px var(--error-red); }
+    
+    /* Terminal Console */
+    .table-panel {
+      border: 1px solid var(--terminal-green);
+      background: rgba(0,0,0,0.95);
+    }
+    .panel-title {
+      padding: 10px; background: var(--terminal-dark);
+      border-bottom: 1px solid var(--terminal-green);
+      font-size: 14px; text-transform: uppercase;
+      display: flex; justify-content: space-between;
+    }
+    .live-badge { color: var(--error-red); animation: blink 1s step-end infinite; }
+
+    .table-scroll { max-height: 500px; overflow-y: auto; overflow-x: hidden; padding: 10px; }
+    .table-scroll::-webkit-scrollbar { width: 10px; background: transparent; border-left: 1px solid var(--terminal-dim); }
+    .table-scroll::-webkit-scrollbar-thumb { background: var(--terminal-green); }
+
+    table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
+    thead th { padding: 5px 0; color: var(--terminal-green); border-bottom: 1px dashed var(--terminal-dim); }
+    tbody tr { animation: insert 0.2s steps(4, end); border-bottom: 1px dotted rgba(0,255,65,0.2); }
+    @keyframes insert { from { background: var(--terminal-green); color: black; } to { background: transparent; } }
+    tbody td { padding: 8px 0; font-family: 'Share Tech Mono', monospace; }
+
+    .val-normal { color: var(--terminal-green); }
+    .val-attack { color: var(--error-red); background: rgba(255,0,60,0.1); padding: 2px 5px; }
+    
+    .empty-state { text-align: center; color: var(--terminal-dim); padding: 40px; font-size: 14px; }
+
+    .back-btn {
+      display: block; width: 220px;
+      padding: 10px; border: 1px solid var(--terminal-green); text-align: center;
+      color: var(--terminal-green); text-decoration: none; margin-bottom: 20px;
+      font-size: 14px; text-transform: uppercase;
+    }
+    .back-btn:hover { background: var(--terminal-green); color: var(--bg-color); }
+  </style>
+</head>
+<body>
+  <div class="crt-flicker"></div>
+
+  <nav>
+    <div class="nav-brand">NIDS Live Detection</div>
+    <div class="nav-links">
+      <a href="/home" class="nav-link">Home</a>
+      <a href="/manual" class="nav-link">Manual Analysis</a>
+      <a href="/live" class="nav-link active">Live Detection</a>
+      <a href="/logout" class="nav-link" style="color:var(--error-red);">Logout</a>
+    </div>
+  </nav>
+
+  <div class="page">
+    <a href="/home" class="back-btn">&lt;&lt; Back to Main Menu</a>
+
+    <div class="page-header">
+      <h2>Real-Time Packet Monitor</h2>
+      <p>Real-time packet monitor ready. Awaiting start command.</p>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls">
+      <button class="btn-start" id="btnStart" onclick="startSniff()">Start Detection</button>
+      <button class="btn-stop" id="btnStop" onclick="stopSniff()" disabled>Stop Detection</button>
+      <div class="status-pill" id="statusPill">
+        <div class="status-dot"></div>
+        <span id="statusText">Waiting for input</span>
+      </div>
+    </div>
+
+    <!-- Live Stats -->
+    <div class="live-stats">
+      <div class="lstat lv-total">
+        <div class="lstat-label">Unique IPs</div>
+        <div class="lstat-val" id="statTotal">0</div>
+      </div>
+      <div class="lstat lv-attack">
+        <div class="lstat-label">Attacks Detected</div>
+        <div class="lstat-val" id="statAttack">0</div>
+      </div>
+      <div class="lstat lv-normal">
+        <div class="lstat-label">Normal Packets</div>
+        <div class="lstat-val" id="statNormal">0</div>
+      </div>
+      <div class="lstat">
+        <div class="lstat-label">Total Packets</div>
+        <div class="lstat-val" id="statPackets" style="color:var(--warning-yellow);">0</div>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="table-panel">
+      <div class="panel-title">
+        <span>Live Traffic Feed</span>
+        <span class="live-badge" style="display:none;" id="liveBadge">[REC] LIVE</span>
+      </div>
+      <div class="table-scroll">
+        <table id="liveTable">
+          <thead>
+            <tr>
+              <th style="width:25%">Source -> Destination IP</th>
+              <th style="width:20%">Status</th>
+              <th style="width:20%">Attack Type</th>
+              <th style="width:20%">Threat Level</th>
+              <th style="width:15%">Payload (Bytes)</th>
+            </tr>
+          </thead>
+          <tbody id="liveBody">
+            <tr id="emptyRow">
+              <td colspan="5">
+                <div class="empty-state">
+                  > No data stream. Click Start Detection.
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const socket = io();
+    let packetCount = 0;
+    
+    function startSniff() {
+      fetch('/start_sniff', { method: 'POST' });
+      document.getElementById('btnStart').disabled = true;
+      document.getElementById('btnStop').disabled = false;
+      const pill = document.getElementById('statusPill');
+      pill.classList.add('online');
+      document.getElementById('statusText').textContent = 'Sniffing Active...';
+      document.getElementById('liveBadge').style.display = 'block';
+
+      packetCount = 0;
+      document.getElementById('statTotal').textContent = '0';
+      document.getElementById('statAttack').textContent = '0';
+      document.getElementById('statNormal').textContent = '0';
+      document.getElementById('statPackets').textContent = '0';
+      document.getElementById('liveBody').innerHTML = `
+        <tr id="emptyRow"><td colspan="5">
+          <div class="empty-state">> Scanning for live packets...</div>
+        </td></tr>`;
+    }
+
+    function stopSniff() {
+      fetch('/stop_sniff', { method: 'POST' });
+      document.getElementById('btnStart').disabled = false;
+      document.getElementById('btnStop').disabled = true;
+      const pill = document.getElementById('statusPill');
+      pill.classList.remove('online');
+      document.getElementById('statusText').textContent = 'Process Terminated (Logs preserved)';
+      document.getElementById('liveBadge').style.display = 'none';
+    }
+
+    socket.on('update', function(payload) {
+      if (!payload || !payload.flows) return;
+      
+      document.getElementById('statPackets').textContent = payload.total_packets;
+      document.getElementById('statTotal').textContent = payload.total_unique;
+      document.getElementById('statAttack').textContent = payload.total_attack;
+      document.getElementById('statNormal').textContent = payload.total_normal;
+
+      const tbody = document.getElementById('liveBody');
+      const empty = document.getElementById('emptyRow');
+      if (empty) empty.remove();
+
+      payload.flows.forEach(function(row) {
+
+        const tr = document.createElement('tr');
+        
+        let statusHtml = row.status === 'Attack' 
+          ? '<span class="val-attack">WARN: ATTACK</span>' 
+          : '<span class="val-normal">OK: CLEAN</span>';
+          
+        let attackHtml = row.attack === 'Normal'
+          ? '<span class="val-normal">--</span>'
+          : '<span class="val-attack">[' + row.attack + ']</span>';
+          
+        let sevHtml = row.severity === 'High' ? '<span style="color:var(--error-red)">CRITICAL</span>'
+                    : row.severity === 'Medium' ? '<span style="color:var(--warning-yellow)">WARNING</span>'
+                    : '<span style="color:#00aeff">INFO</span>';
+
+        // Prepend individual packet row to look like a terminal scroll
+        tr.innerHTML = `
+          <td><span style="opacity:0.6">> </span>${row.ip}</td>
+          <td>${statusHtml}</td>
+          <td>${attackHtml}</td>
+          <td>${sevHtml}</td>
+          <td style="opacity:0.5">${row.bytes || '0'} <small>[Seq]</small></td>
+        `;
+        tbody.prepend(tr);
+        
+        // Cap the GUI table at 300 packets to prevent massive memory leaks/lag
+        if (tbody.children.length > 300) {
+            tbody.removeChild(tbody.lastChild);
+        }
+      });
+    });
+  </script>
+</body>
+</html>

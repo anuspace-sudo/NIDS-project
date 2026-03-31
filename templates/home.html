@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>NIDS — Command Center</title>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --bg-color: #050505;
+      --terminal-green: #00ff41;
+      --terminal-dim: #008f11;
+      --terminal-dark: #003b00;
+      --error-red: #ff003c;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      min-height: 100vh;
+      background-color: var(--bg-color);
+      color: var(--terminal-green);
+      font-family: 'Share Tech Mono', monospace;
+      overflow-x: hidden;
+      position: relative;
+    }
+
+    /* CRT Scanlines and flicker */
+    body::before {
+      content: " ";
+      display: block;
+      position: fixed;
+      top: 0; left: 0; bottom: 0; right: 0;
+      background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+      z-index: 999;
+      background-size: 100% 2px, 3px 100%;
+      pointer-events: none;
+    }
+    .crt-flicker {
+      animation: crt-flicker 0.15s infinite;
+      pointer-events: none;
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0, 255, 65, 0.02);
+      z-index: 998;
+    }
+    @keyframes crt-flicker { 0% { opacity: 0.95; } 50% { opacity: 0.85; } 100% { opacity: 0.95; } }
+
+    /* Matrix Rain Canvas */
+    #matrix-canvas {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      z-index: 0; opacity: 0.3;
+    }
+
+    /* NAV */
+    nav {
+      position: relative; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 15px 40px;
+      background: var(--terminal-dark);
+      border-bottom: 1px solid var(--terminal-dim);
+    }
+    .nav-brand { display: flex; align-items: center; gap: 15px; }
+    .nav-brand h1 { font-size: 20px; text-transform: uppercase; letter-spacing: 2px; text-shadow: 0 0 5px var(--terminal-green); }
+    .nav-right { display: flex; align-items: center; gap: 20px; }
+    
+    .user-badge {
+      font-size: 14px; color: var(--terminal-dim);
+      border: 1px solid var(--terminal-dim); padding: 5px 15px;
+    }
+    .user-badge span { color: var(--terminal-green); font-weight: bold; }
+    .btn-logout {
+      padding: 5px 15px; background: transparent; border: 1px solid var(--error-red);
+      color: var(--error-red); text-decoration: none; cursor: pointer; text-transform: uppercase;
+      transition: all 0.2s;
+    }
+    .btn-logout:hover { background: var(--error-red); color: var(--bg-color); box-shadow: 0 0 10px var(--error-red); }
+
+    /* PAGE CONTENT */
+    .container { position: relative; z-index: 10; padding: 40px; max-width: 1200px; margin: 0 auto; }
+
+    /* HERO */
+    .hero { margin-bottom: 50px; border-left: 4px solid var(--terminal-green); padding-left: 20px; }
+    .hero-status {
+      display: inline-flex; align-items: center; gap: 10px;
+      color: var(--terminal-green); font-size: 14px; margin-bottom: 15px; text-transform: uppercase;
+    }
+    .status-dot { width: 10px; height: 10px; background: var(--terminal-green); box-shadow: 0 0 8px var(--terminal-green); animation: blink 1s step-end infinite; }
+    @keyframes blink { 50% { opacity: 0; } }
+    .hero h2 { font-size: 36px; margin-bottom: 15px; text-shadow: 0 0 5px var(--terminal-green); text-transform: uppercase; }
+    .hero p { color: var(--terminal-dim); font-size: 16px; line-height: 1.5; max-width: 700px; }
+    .hero .typewriter { overflow: hidden; white-space: nowrap; border-right: 8px solid var(--terminal-green); animation: typing 2s steps(40, end), blink 1s step-end infinite; }
+    @keyframes typing { from { width: 0 } to { width: 100% } }
+
+    /* MODES */
+    .cards-wrapper { display: flex; gap: 30px; flex-wrap: wrap; margin-bottom: 50px; }
+    
+    .mode-card {
+      flex: 1; min-width: 350px;
+      background: rgba(0, 0, 0, 0.8);
+      border: 1px solid var(--terminal-dim);
+      padding: 30px;
+      cursor: pointer; text-decoration: none;
+      transition: all 0.3s; position: relative;
+    }
+    .mode-card:hover {  box-shadow: 0 0 15px var(--terminal-green); border-color: var(--terminal-green); transform: translateY(-5px); }
+    
+    .card-title { font-size: 24px; color: var(--terminal-green); margin-bottom: 15px; letter-spacing: 2px; }
+    .card-desc { color: var(--terminal-dim); font-size: 14px; line-height: 1.6; margin-bottom: 25px; min-height: 50px; }
+    
+    .card-features { list-style: none; margin-bottom: 30px; }
+    .card-features li { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--terminal-dim); margin-bottom: 10px; padding-bottom: 5px; border-bottom: 1px dashed rgba(0, 143, 17, 0.3); }
+    .card-features li::before { content: ">"; color: var(--terminal-green); font-weight: bold; }
+
+    .card-btn {
+      display: block; width: 100%; padding: 12px;
+      background: transparent; border: 1px solid var(--terminal-green); color: var(--terminal-green);
+      font-family: inherit; font-size: 16px; text-align: center; cursor: pointer; text-transform: uppercase; transition: all 0.2s;
+    }
+    .mode-card:hover .card-btn { background: var(--terminal-green); color: var(--bg-color); }
+
+    /* Live Card specifically */
+    .card-live { border-color: var(--error-red); color: var(--error-red); }
+    .card-live .card-title { color: var(--error-red); text-shadow: 0 0 5px var(--error-red); }
+    .card-live .card-features li::before { color: var(--error-red); }
+    .card-live .card-btn { border-color: var(--error-red); color: var(--error-red); }
+    .card-live .card-desc, .card-live .card-features li { color: rgba(255, 0, 60, 0.7); }
+    .card-live:hover { box-shadow: 0 0 15px var(--error-red); border-color: var(--error-red); }
+    .card-live:hover .card-btn { background: var(--error-red); color: var(--bg-color); }
+
+    /* STATS BAR */
+    .stats-bar {
+      display: flex; gap: 40px; justify-content: flex-start;
+      border-top: 1px solid var(--terminal-dim); padding-top: 30px;
+    }
+    .stat { display: flex; flex-direction: column; gap: 5px; }
+    .stat-val { font-size: 28px; color: var(--terminal-green); font-weight: bold; text-shadow: 0 0 5px var(--terminal-green); }
+    .stat-label { font-size: 12px; color: var(--terminal-dim); text-transform: uppercase; }
+  </style>
+</head>
+<body>
+  <div class="crt-flicker"></div>
+  <canvas id="matrix-canvas"></canvas>
+
+  <nav>
+    <div class="nav-brand">
+      <span style="font-size: 20px;">[SYS]</span>
+      <h1>NIDS Command Center</h1>
+    </div>
+    <div class="nav-right">
+      <div class="user-badge">User: <span>{{ user }}</span></div>
+      <a href="/logout" class="btn-logout">Logout</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <div class="hero">
+      <div class="hero-status">
+        <div class="status-dot"></div>
+        System Online: Model Loaded
+      </div>
+      <h2>Select Detection Mode</h2>
+      <p class="typewriter">Awaiting command... Please choose a detection mode to begin.</p>
+    </div>
+
+    <div class="cards-wrapper">
+      <!-- Manual Card -->
+      <a href="/manual" class="mode-card card-manual">
+        <div class="card-title">Manual Analysis</div>
+        <p class="card-desc">Execute a comprehensive historical analysis on the pre-loaded KDD dataset. Generate raw logs and visual breakdowns.</p>
+        <ul class="card-features">
+          <li>Parse KDD Test Data (25,192 records)</li>
+          <li>Apply Machine Learning Pipeline</li>
+          <li>Identify DoS, Probe, R2L, U2R</li>
+          <li>Generate execution report</li>
+        </ul>
+        <div class="card-btn">Start Analysis</div>
+      </a>
+
+      <!-- Live Card -->
+      <a href="/live" class="mode-card card-live">
+        <div class="card-title">Live Detection</div>
+        <p class="card-desc">Initialize real-time interface sniffer. Warning: May consume high system resources. Intercepts and flags packets instantly.</p>
+        <ul class="card-features">
+          <li>Bind to network interface (Scapy)</li>
+          <li>Real-time packet inspection</li>
+          <li>Flag malicious IP addresses</li>
+          <li>WebSocket live stream</li>
+        </ul>
+        <div class="card-btn">Start Monitoring</div>
+      </a>
+    </div>
+
+    <div class="stats-bar">
+      <div class="stat">
+        <div class="stat-val">TRUE</div>
+        <div class="stat-label">ML Engine Active</div>
+      </div>
+      <div class="stat">
+        <div class="stat-val">4</div>
+        <div class="stat-label">Attack Vectors</div>
+      </div>
+      <div class="stat">
+        <div class="stat-val">KDD</div>
+        <div class="stat-label">Dataset Mode</div>
+      </div>
+      <div class="stat">
+        <div class="stat-val">v2.0</div>
+        <div class="stat-label">NIDS Version</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('matrix-canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    const letters = '01'.split('');
+    const fontSize = 16;
+    const columns = canvas.width / fontSize;
+    const drops = [];
+    for(let x = 0; x < columns; x++) { drops[x] = 1; }
+
+    function drawMatrix() {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#0F0';
+      ctx.font = fontSize + 'px monospace';
+      for(let i = 0; i < drops.length; i++) {
+        const text = letters[Math.floor(Math.random() * letters.length)];
+        ctx.fillText(text, i * fontSize, drops[i] * fontSize);
+        if(drops[i] * fontSize > canvas.height && Math.random() > 0.975) { drops[i] = 0; }
+        drops[i]++;
+      }
+    }
+    setInterval(drawMatrix, 50);
+    window.addEventListener('resize', () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; });
+  </script>
+</body>
+</html>

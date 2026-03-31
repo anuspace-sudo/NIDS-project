@@ -1,0 +1,43 @@
+body {
+    background: black;
+    color: #00ffcc;
+    font-family: monospace;
+    text-align: center;
+}
+
+h1 {
+    text-shadow: 0 0 10px #00ffcc;
+}
+
+input, button {
+    padding: 10px;
+    margin: 10px;
+    background: black;
+    color: #00ffcc;
+    border: 1px solid #00ffcc;
+}
+
+button:hover {
+    background: #00ffcc;
+    color: black;
+}
+
+table {
+    width: 95%;
+    margin: auto;
+    border-collapse: collapse;
+}
+
+th, td {
+    padding: 10px;
+    border-bottom: 1px solid #00ffcc;
+}
+
+.attack-row {
+    background: rgba(255,0,0,0.2);
+    color: #ff4d4d;
+}
+
+.normal-row {
+    background: rgba(0,255,0,0.1);
+}

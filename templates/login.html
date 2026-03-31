@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>NIDS — Secure Terminal Login</title>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --bg-color: #050505;
+      --terminal-green: #00ff41;
+      --terminal-dim: #008f11;
+      --terminal-dark: #003b00;
+      --error-red: #ff003c;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      min-height: 100vh;
+      background-color: var(--bg-color);
+      color: var(--terminal-green);
+      font-family: 'Share Tech Mono', monospace;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* CRT Scanlines and flicker */
+    body::before {
+      content: " ";
+      display: block;
+      position: absolute;
+      top: 0; left: 0; bottom: 0; right: 0;
+      background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+      z-index: 2;
+      background-size: 100% 2px, 3px 100%;
+      pointer-events: none;
+    }
+    
+    .crt-flicker {
+      animation: crt-flicker 0.15s infinite;
+      pointer-events: none;
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0, 255, 65, 0.02);
+      z-index: 10;
+    }
+    
+    @keyframes crt-flicker {
+      0% { opacity: 0.95; }
+      50% { opacity: 0.85; }
+      100% { opacity: 0.95; }
+    }
+
+    /* Matrix Rain Canvas */
+    #matrix-canvas {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      z-index: 0;
+      opacity: 0.4;
+    }
+
+    /* Terminal Window */
+    .terminal-window {
+      position: relative;
+      z-index: 5;
+      width: 500px;
+      max-width: 90%;
+      background: rgba(0, 0, 0, 0.8);
+      border: 1px solid var(--terminal-dim);
+      box-shadow: 0 0 15px rgba(0, 255, 65, 0.2);
+    }
+
+    /* Terminal Header */
+    .terminal-header {
+      background: var(--terminal-dark);
+      padding: 5px 10px;
+      display: flex;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--terminal-dim);
+      font-size: 14px;
+    }
+    .status-lights span {
+      display: inline-block;
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: var(--terminal-green);
+      margin-left: 5px;
+      opacity: 0.7;
+    }
+
+    .terminal-body {
+      padding: 30px;
+    }
+
+    /* Header text styling */
+    .logo {
+      text-align: left;
+      margin-bottom: 30px;
+      border-left: 4px solid var(--terminal-green);
+      padding-left: 15px;
+    }
+    .logo h1 {
+      font-size: 28px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      margin-bottom: 5px;
+      text-shadow: 0 0 5px var(--terminal-green);
+    }
+    .logo p {
+      font-size: 14px;
+      opacity: 0.8;
+      color: var(--terminal-dim);
+    }
+
+    /* Alert messages */
+    .alert {
+      padding: 10px;
+      margin-bottom: 20px;
+      font-size: 14px;
+      border-left: 2px solid;
+    }
+    .alert-error {
+      color: var(--error-red);
+      border-color: var(--error-red);
+      background: rgba(255, 0, 60, 0.1);
+      box-shadow: 0 0 8px rgba(255, 0, 60, 0.2);
+    }
+    .alert-success {
+      color: var(--terminal-green);
+      border-color: var(--terminal-green);
+      background: rgba(0, 255, 65, 0.1);
+      box-shadow: 0 0 8px rgba(0, 255, 65, 0.2);
+    }
+
+    /* Command prompts and forms */
+    .form-group {
+      margin-bottom: 25px;
+    }
+    .prompt-label {
+      display: block;
+      font-size: 14px;
+      margin-bottom: 8px;
+    }
+    .input-line {
+      display: flex;
+      align-items: center;
+    }
+    .input-prefix {
+      margin-right: 10px;
+      font-weight: bold;
+    }
+    input[type="text"], input[type="password"] {
+      background: transparent;
+      border: none;
+      border-bottom: 1px solid var(--terminal-dim);
+      color: var(--terminal-green);
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 16px;
+      padding: 5px 0;
+      width: 100%;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    input[type="text"]:focus, input[type="password"]:focus {
+      border-bottom: 1px solid var(--terminal-green);
+      box-shadow: 0 2px 5px -2px var(--terminal-green);
+    }
+
+    /* Typewriter Blinking Cursor Effect */
+    .cursor-blink {
+      display: inline-block;
+      width: 8px;
+      height: 15px;
+      background-color: var(--terminal-green);
+      animation: blink 1s step-end infinite;
+      vertical-align: middle;
+      margin-left: 5px;
+    }
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+    /* Button styling */
+    .btn-submit {
+      width: 100%;
+      background: transparent;
+      border: 1px solid var(--terminal-green);
+      color: var(--terminal-green);
+      padding: 12px;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 16px;
+      text-transform: uppercase;
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+      transition: all 0.3s ease;
+      margin-top: 10px;
+    }
+    .btn-submit:hover {
+      background: var(--terminal-green);
+      color: var(--bg-color);
+      box-shadow: 0 0 15px var(--terminal-green);
+    }
+    .btn-submit:active {
+      transform: scale(0.98);
+    }
+
+    /* Tab switcher simulating command injection */
+    .tabs {
+      display: flex;
+      gap: 15px;
+      margin-bottom: 25px;
+    }
+    .tab-btn {
+      background: transparent;
+      border: none;
+      color: var(--terminal-dim);
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 14px;
+      cursor: pointer;
+      padding-bottom: 3px;
+    }
+    .tab-btn:hover { color: var(--terminal-green); }
+    .tab-btn.active {
+      color: var(--terminal-green);
+      border-bottom: 2px solid var(--terminal-green);
+    }
+
+    /* Bottom text */
+    .bottom-text {
+      margin-top: 25px;
+      font-size: 13px;
+      text-align: center;
+      color: var(--terminal-dim);
+    }
+    .bottom-text a {
+      color: var(--terminal-green);
+      text-decoration: underline;
+      text-decoration-style: dotted;
+      cursor: pointer;
+    }
+
+    .form-panel { display: none; }
+    .form-panel.active { display: block; }
+
+    /* Scanning laser line */
+    .scanline {
+      width: 100%;
+      height: 2px;
+      background: var(--terminal-green);
+      position: absolute;
+      top: 0;
+      opacity: 0.5;
+      animation: scan 6s linear infinite;
+      box-shadow: 0 0 10px var(--terminal-green);
+    }
+    @keyframes scan {
+      0% { top: 0; }
+      100% { top: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="crt-flicker"></div>
+  <canvas id="matrix-canvas"></canvas>
+
+  <div class="terminal-window">
+    <div class="terminal-header">
+      <span>NIDS Authentication Module</span>
+      <div class="status-lights">
+        <span></span><span></span><span></span>
+      </div>
+    </div>
+    <div class="scanline"></div>
+    <div class="terminal-body">
+      
+      <div class="logo">
+        <h1>N.I.D.S. [v2.0]</h1>
+        <p>NETWORK INTRUSION DCLX SYSTEM</p>
+      </div>
+
+      <div class="tabs">
+        <button class="tab-btn active" id="tab-login" onclick="switchTab('login')">[ LOGIN ]</button>
+        <button class="tab-btn" id="tab-signup" onclick="switchTab('signup')">[ REGISTER ]</button>
+      </div>
+
+      {% if error %}
+      <div class="alert alert-error">>> ERR: {{ error }}</div>
+      {% endif %}
+      {% if success %}
+      <div class="alert alert-success">>> SYS: {{ success }}</div>
+      {% endif %}
+
+      <!-- LOGIN FORM -->
+      <div class="form-panel active" id="panel-login">
+        <form method="POST" action="/login">
+          <div class="form-group">
+            <label class="prompt-label">Username:</label>
+            <div class="input-line">
+              <span class="input-prefix">~$</span>
+              <input type="text" name="username" required autocomplete="off" spellcheck="false"/>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="prompt-label">Password:</label>
+            <div class="input-line">
+              <span class="input-prefix">#&nbsp;</span>
+              <input type="password" name="password" required/>
+            </div>
+          </div>
+          <button type="submit" class="btn-submit">Log In</button>
+        </form>
+        <div class="bottom-text">Don't have an account? <a onclick="switchTab('signup')">Register here</a><div class="cursor-blink"></div></div>
+      </div>
+
+      <!-- SIGNUP FORM -->
+      <div class="form-panel" id="panel-signup">
+        <form method="POST" action="/signup">
+          <div class="form-group">
+            <label class="prompt-label">Username:</label>
+            <div class="input-line">
+              <span class="input-prefix">~$</span>
+              <input type="text" name="username" required autocomplete="off" spellcheck="false"/>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="prompt-label">Password:</label>
+            <div class="input-line">
+              <span class="input-prefix">#&nbsp;</span>
+              <input type="password" name="password" required/>
+            </div>
+          </div>
+          <button type="submit" class="btn-submit">Create Account</button>
+        </form>
+        <div class="bottom-text">Already registered? <a onclick="switchTab('login')">Sign in</a><div class="cursor-blink"></div></div>
+      </div>
+    
+    </div>
+  </div>
+
+  <div id="appMeta" data-show="{% if success %}login{% endif %}" style="display:none"></div>
+  <script>
+    function switchTab(tab) {
+      document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+      document.querySelectorAll('.form-panel').forEach(function(p) { p.classList.remove('active'); });
+      document.getElementById('tab-' + tab).classList.add('active');
+      document.getElementById('panel-' + tab).classList.add('active');
+    }
+    var meta = document.getElementById('appMeta');
+    if (meta && meta.dataset.show === 'login') { switchTab('login'); }
+
+    // Matrix Rain Effect
+    const canvas = document.getElementById('matrix-canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789$+-*/=%""\'#&_(),.;:?!\\|{}<>[]^~'.split('');
+    const fontSize = 14;
+    const columns = canvas.width / fontSize;
+    const drops = [];
+    for(let x = 0; x < columns; x++) { drops[x] = 1; }
+
+    function drawMatrix() {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#0F0';
+      ctx.font = fontSize + 'px monospace';
+      
+      for(let i = 0; i < drops.length; i++) {
+        const text = letters[Math.floor(Math.random() * letters.length)];
+        ctx.fillText(text, i * fontSize, drops[i] * fontSize);
+        if(drops[i] * fontSize > canvas.height && Math.random() > 0.975) {
+          drops[i] = 0;
+        }
+        drops[i]++;
+      }
+    }
+    setInterval(drawMatrix, 33);
+    
+    window.addEventListener('resize', () => {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    });
+  </script>
+</body>
+</html>

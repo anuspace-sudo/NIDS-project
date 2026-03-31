@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>NIDS — Manual Analysis [LOGS]</title>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --bg-color: #050505;
+      --terminal-green: #00ff41;
+      --terminal-dim: #008f11;
+      --terminal-dark: #003b00;
+      --error-red: #ff003c;
+      --warning-yellow: #ffb700;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      min-height: 100vh;
+      background-color: var(--bg-color);
+      color: var(--terminal-green);
+      font-family: 'Share Tech Mono', monospace;
+    }
+
+    /* CRT Scanlines and flicker */
+    .crt-flicker {
+      animation: crt-flicker 0.15s infinite;
+      pointer-events: none;
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0, 255, 65, 0.02);
+      z-index: 998;
+    }
+    @keyframes crt-flicker { 0% { opacity: 0.95; } 50% { opacity: 0.85; } 100% { opacity: 0.95; } }
+
+    /* NAV */
+    nav {
+      position: sticky; top: 0; z-index: 200;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 20px;
+      background: var(--terminal-dark);
+      border-bottom: 2px solid var(--terminal-green);
+    }
+    .nav-brand { font-size: 16px; font-weight: bold; }
+    .nav-links { display: flex; gap: 20px; align-items: center; font-size: 14px; }
+    .nav-link { color: var(--terminal-dim); text-decoration: none; border-bottom: 1px solid transparent; }
+    .nav-link:hover { color: var(--terminal-green); }
+    .nav-link.active { color: var(--terminal-green); border-bottom: 1px dashed var(--terminal-green); }
+
+    /* Page container */
+    .page { padding: 30px; }
+
+    /* Header */
+    .page-header { margin-bottom: 30px; border-left: 4px solid var(--terminal-green); padding-left: 15px; }
+    .page-header h2 { font-size: 24px; text-transform: uppercase; margin-bottom: 5px; }
+    .page-header p { font-size: 14px; color: var(--terminal-dim); }
+
+    /* Stats */
+    .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 30px; }
+    .stat-card {
+      background: rgba(0,0,0,0.8);
+      border: 1px solid var(--terminal-dim);
+      padding: 15px;
+      text-align: center;
+    }
+    .stat-card-label { font-size: 12px; color: var(--terminal-dim); text-transform: uppercase; margin-bottom: 10px; }
+    .stat-card-val { font-size: 28px; font-weight: bold; }
+    .sc-total .stat-card-val { color: var(--terminal-green); }
+    .sc-attack .stat-card-val { color: var(--error-red); text-shadow: 0 0 5px var(--error-red); }
+    .sc-normal .stat-card-val { color: var(--terminal-green); }
+    .sc-rate .stat-card-val { color: var(--warning-yellow); text-shadow: 0 0 5px var(--warning-yellow); }
+
+    /* Content */
+    .content-grid { display: grid; grid-template-columns: 280px 1fr; gap: 20px; }
+
+    /* Panels */
+    .panel {
+      background: rgba(0,0,0,0.9);
+      border: 1px solid var(--terminal-dim);
+      padding: 20px;
+    }
+    .panel-title { font-size: 14px; text-transform: uppercase; border-bottom: 1px dotted var(--terminal-dim); padding-bottom: 10px; margin-bottom: 15px; }
+
+    /* Grid/Table */
+    .table-scroll { overflow-x: auto; max-height: 500px; overflow-y: auto; }
+    .table-scroll::-webkit-scrollbar { width: 8px; background: transparent; border-left: 1px solid var(--terminal-dim); }
+    .table-scroll::-webkit-scrollbar-thumb { background: var(--terminal-dim); }
+
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    thead th {
+      position: sticky; top: 0;
+      text-align: left; padding: 8px 10px;
+      background: var(--bg-color); color: var(--terminal-green);
+      border-bottom: 1px solid var(--terminal-green); text-transform: uppercase;
+    }
+    tbody tr { border-bottom: 1px dotted var(--terminal-dim); }
+    tbody tr:hover { background: rgba(0,255,65,0.1); }
+    tbody td { padding: 8px 10px; color: var(--terminal-dim); }
+
+    /* Value colors */
+    .val-normal { color: var(--terminal-green); }
+    .val-attack { color: var(--error-red); background: rgba(255,0,60,0.1); padding: 2px 5px; font-weight: bold; }
+
+    .back-btn {
+      display: block; width: 220px;
+      padding: 10px; border: 1px solid var(--terminal-green); text-align: center;
+      color: var(--terminal-green); text-decoration: none; margin-bottom: 20px;
+      font-size: 14px; text-transform: uppercase;
+    }
+    .back-btn:hover { background: var(--terminal-green); color: var(--bg-color); }
+  </style>
+</head>
+<body>
+  <div class="crt-flicker"></div>
+
+  <nav>
+    <div class="nav-brand">NIDS Manual Analysis</div>
+    <div class="nav-links">
+      <a href="/home" class="nav-link">Home</a>
+      <a href="/manual" class="nav-link active">Manual Analysis</a>
+      <a href="/live" class="nav-link">Live Detection</a>
+      <a href="/logout" class="nav-link" style="color:var(--error-red);">Logout</a>
+    </div>
+  </nav>
+
+  <div class="page">
+    <a href="/home" class="back-btn">&lt;&lt; Back to Main Menu</a>
+
+    <div class="page-header">
+      <h2>Dataset Analysis Report</h2>
+      <p>System analysis complete. Dumped {{ total }} network transaction records.</p>
+      {% if error %}
+      <p style="color:#ff003c;">Error: {{ error }}</p>
+      {% endif %}
+    </div>
+
+    <!-- STATS -->
+    <div class="stat-row">
+      <div class="stat-card sc-total">
+        <div class="stat-card-label">Total Scanned</div>
+        <div class="stat-card-val">{{ total }}</div>
+      </div>
+      <div class="stat-card sc-attack">
+        <div class="stat-card-label">Attacks Detected</div>
+        <div class="stat-card-val">{{ attack_count }}</div>
+      </div>
+      <div class="stat-card sc-normal">
+        <div class="stat-card-label">Normal Traffic</div>
+        <div class="stat-card-val">{{ normal_count }}</div>
+      </div>
+      <div class="stat-card sc-rate">
+        <div class="stat-card-label">Threat Percentage</div>
+        <div class="stat-card-val">{{ "%.1f"|format(attack_count / total * 100) }}%</div>
+      </div>
+    </div>
+
+    <!-- CONTENT -->
+    <div class="content-grid">
+      <!-- CHART -->
+      <div class="panel">
+        <div class="panel-title">Attack Categories</div>
+        <canvas id="donutChart"></canvas>
+        <div style="margin-top:20px; font-size:12px;">
+          <div><span style="color:var(--error-red)">[DoS]</span> {{ attack_types.get('DoS', 0) }}</div>
+          <div><span style="color:#00aeff">[Probe]</span> {{ attack_types.get('Probe', 0) }}</div>
+          <div><span style="color:var(--warning-yellow)">[R2L]</span> {{ attack_types.get('R2L', 0) }}</div>
+          <div><span style="color:#b200ff">[U2R]</span> {{ attack_types.get('U2R', 0) }}</div>
+          <div><span style="color:var(--terminal-green)">[Normal]</span> {{ attack_types.get('Normal', 0) }}</div>
+        </div>
+      </div>
+
+      <!-- TABLE -->
+      <div class="panel">
+        <div class="panel-title">System Packet Dump - Showing First {{ results|length }} Entries</div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>PROTO</th>
+                <th>SERVICE</th>
+                <th>STATUS</th>
+                <th>TYPE</th>
+                <th>SEVERITY</th>
+                <th>FORECAST</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in results %}
+              <tr>
+                <td style="color:var(--terminal-dim); opacity:0.5;">#{{ loop.index }}</td>
+                <td>{{ r.protocol }}</td>
+                <td>{{ r.service }}</td>
+                <td>
+                  {% if r.status == 'Attack' %}
+                    <span class="val-attack">WARN: ATTACK</span>
+                  {% else %}
+                    <span class="val-normal">OK: CLEAN</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if r.attack != 'Normal' %}
+                    <span class="val-attack">[{{ r.attack }}]</span>
+                  {% else %}
+                    <span class="val-normal">--</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if r.severity == 'High' %}
+                    <span style="color:var(--error-red)">CRIT</span>
+                  {% elif r.severity == 'Medium' %}
+                    <span style="color:var(--warning-yellow)">WARN</span>
+                  {% elif r.severity == 'Low' %}
+                    <span style="color:#00aeff">INFO</span>
+                  {% else %}
+                    <span style="opacity:0.5">-</span>
+                  {% endif %}
+                </td>
+                <td style="opacity:0.7">{{ r.future }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="chartData"
+    data-dos="{{ attack_types.get('DoS', 0) }}"
+    data-probe="{{ attack_types.get('Probe', 0) }}"
+    data-r2l="{{ attack_types.get('R2L', 0) }}"
+    data-u2r="{{ attack_types.get('U2R', 0) }}"
+    data-normal="{{ attack_types.get('Normal', 0) }}"
+    style="display:none">
+  </div>
+
+  <script>
+    var cd = document.getElementById('chartData').dataset;
+    var ctx = document.getElementById('donutChart').getContext('2d');
+    new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: ['DoS', 'Probe', 'R2L', 'U2R', 'Normal'],
+        datasets: [{
+          data: [
+            parseInt(cd.dos),
+            parseInt(cd.probe),
+            parseInt(cd.r2l),
+            parseInt(cd.u2r),
+            parseInt(cd.normal)
+          ],
+          backgroundColor: [
+            '#ff003c',
+            '#00aeff',
+            '#ffb700',
+            '#b200ff',
+            '#00ff41'
+          ],
+          borderColor: '#050505',
+          borderWidth: 2
+        }]
+      },
+      options: {
+        cutout: '60%',
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#050505',
+            borderColor: '#00ff41',
+            borderWidth: 1,
+            titleFont: { family: "'Share Tech Mono', monospace" },
+            bodyFont: { family: "'Share Tech Mono', monospace" },
+            cornerRadius: 0
+          }
+        }
+      }
+    });
+  </script>
+</body>
+</html>
