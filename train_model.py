@@ -40,6 +40,7 @@ y = df[41]
 
 # One-hot encoding
 X = pd.get_dummies(X)
+X.columns = X.columns.astype(str)
 
 # Save columns
 pickle.dump(X.columns, open("columns.pkl", "wb"))
